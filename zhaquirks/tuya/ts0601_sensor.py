@@ -29,6 +29,7 @@ from zhaquirks.tuya.builder import TuyaPowerConfigurationCluster2AAA, TuyaQuirkB
 (
     TuyaQuirkBuilder("_TZE200_yjjdcqsq", "TS0601")
     .applies_to("_TZE200_9yapgbuv", "TS0601")
+    .applies_to("_TZE204_9yapgbuv", "TS0601")
     .applies_to("_TZE204_yjjdcqsq", "TS0601")
     .applies_to("_TZE200_utkemkbs", "TS0601")
     .applies_to("_TZE204_utkemkbs", "TS0601")
