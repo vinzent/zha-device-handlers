@@ -1,12 +1,15 @@
 """BlitzWolf IS-3/Tuya motion rechargeable occupancy sensor."""
 
+import asyncio
 import math
+from typing import Any
 
 from zigpy.quirks.v2 import EntityType
 from zigpy.quirks.v2.homeassistant import UnitOfLength, UnitOfTime
 from zigpy.quirks.v2.homeassistant.sensor import SensorDeviceClass, SensorStateClass
 import zigpy.types as t
 from zigpy.zcl.clusters.measurement import IlluminanceMeasurement, OccupancySensing
+from zigpy.zcl.clusters.security import IasZone
 
 from zhaquirks.tuya import TuyaLocalCluster
 from zhaquirks.tuya.builder import TuyaQuirkBuilder
@@ -18,6 +21,40 @@ class TuyaIlluminanceCluster(IlluminanceMeasurement, TuyaLocalCluster):
 
 class TuyaOccupancySensing(OccupancySensing, TuyaLocalCluster):
     """Tuya local OccupancySensing cluster."""
+
+
+class TuyaMotionWithReset(IasZone, TuyaLocalCluster):
+    """Tuya local IAS motion cluster with reset."""
+
+    _CONSTANT_ATTRIBUTES = {
+        IasZone.AttributeDefs.zone_type.id: IasZone.ZoneType.Motion_Sensor
+    }
+    reset_s: int = 15
+
+    def __init__(self, *args, **kwargs):
+        """Init."""
+        super().__init__(*args, **kwargs)
+        self._loop = asyncio.get_running_loop()
+        self._timer_handle = None
+
+    def _turn_off(self) -> None:
+        """Reset IAS zone status."""
+        self._timer_handle = None
+        self.debug("%s - Resetting Tuya motion sensor", self.endpoint.device.ieee)
+        self._update_attribute(IasZone.AttributeDefs.zone_status.id, 0)
+
+    def _update_attribute(self, attrid: int | t.uint16_t, value: Any) -> None:
+        """Catch zone status updates and potentially schedule reset."""
+        if (
+            attrid == IasZone.AttributeDefs.zone_status.id
+            and value == IasZone.ZoneStatus.Alarm_1
+        ):
+            self.debug("%s - Received Tuya motion event", self.endpoint.device.ieee)
+            if self._timer_handle:
+                self._timer_handle.cancel()
+            self._timer_handle = self._loop.call_later(self.reset_s, self._turn_off)
+
+        super()._update_attribute(attrid, value)
 
 
 base_tuya_motion = (
@@ -169,13 +206,11 @@ base_tuya_motion = (
 (
     TuyaQuirkBuilder("_TYST11_i5j6ifxj", "5j6ifxj")
     .applies_to("_TYST11_7hfcudw5", "hfcudw5")
-    .tuya_dp(
+    .tuya_ias(
         dp_id=3,
-        ep_attribute=TuyaOccupancySensing.ep_attribute,
-        attribute_name=OccupancySensing.AttributeDefs.occupancy.name,
-        converter=lambda x: x == 2,
+        ias_cfg=TuyaMotionWithReset,
+        converter=lambda x: IasZone.ZoneStatus.Alarm_1 if x == 2 else 0,
     )
-    .adds(TuyaOccupancySensing)
     .skip_configuration()
     .add_to_registry()
 )
